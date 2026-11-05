@@ -1,0 +1,14 @@
+{
+  "name": "tio-da-xerox",
+  "version": "1.0.0",
+  "description": "Cota coletiva de xerox da turma - demo de Sistemas Distribuídos (UFR)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "tunel": "npx -y cloudflared tunnel --url http://localhost:3000"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}

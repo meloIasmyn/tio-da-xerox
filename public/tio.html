@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tio da Xerox — Copiadora</title>
+<link rel="stylesheet" href="estilo.css">
+<style>
+  main { max-width: 1250px; display: grid; grid-template-columns: 300px 1fr 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  #qr { display: flex; justify-content: center; padding: 8px; background: #fff; }
+  #qr img, #qr canvas { width: 100%; max-width: 240px; height: auto; }
+  .url { text-align: center; word-break: break-all; font-size: .85rem; color: var(--azul2); font-weight: bold; }
+  .grande-num { font-size: 4rem; font-family: 'Arial Black', Arial, sans-serif; color: var(--azul); line-height: 1; }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .kpi { background: var(--lilas); border-radius: 10px; padding: 8px; text-align: center; }
+  .kpi b { display: block; font-size: 1.5rem; color: var(--azul); }
+  .integ { margin-top: 12px; padding: 12px; border-radius: 10px; font-weight: bold; text-align: center; color: #fff; background: var(--verde); }
+  .integ.ruim { background: var(--erro); animation: pisca 1s infinite alternate; }
+  .controles { display: grid; gap: 8px; }
+  .lock { font-size: 1.1rem; padding: 14px; }
+  .lock.on { background: var(--verde); color: #fff; } .lock.off { background: var(--erro); color: #fff; }
+  .lista li { font-size: 1.05rem; }
+  .reserva-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--lilas); }
+  .log { font-size: .95rem; }
+</style>
+</head>
+<body>
+<header>
+  <div class="marca">🖨️ <b>Tio da Xerox</b> — tela da copiadora</div>
+  <div class="sub">Cota coletiva da turma · demonstração de Sistemas Distribuídos · UFR</div>
+</header>
+<main>
+  <div>
+    <section class="card">
+      <div class="rotulo">Entre pelo celular 📱</div>
+      <div id="qr"></div>
+      <div class="url" id="url"></div>
+    </section>
+    <section class="card controles">
+      <div class="rotulo">Controles da demonstração</div>
+      <button class="btn lock" id="lock">🔒 Exclusão mútua: LIGADA</button>
+      <button class="btn" id="estresse">⚡ 15 robôs pedem 20 pág ao mesmo tempo</button>
+      <button class="btn" id="reset">↺ Zerar cota (200 pág)</button>
+    </section>
+  </div>
+
+  <div>
+    <section class="card">
+      <div class="rotulo">Saldo da turma</div>
+      <div class="grande-num"><span id="saldo">–</span><small style="font-size:1.2rem;font-family:Arial;color:var(--suave)"> / 200</small></div>
+      <div class="barra" style="margin-top:10px"><div id="barra"></div></div>
+      <div class="kpis">
+        <div class="kpi"><b id="k-dist">0</b>páginas distribuídas</div>
+        <div class="kpi"><b id="k-online">0</b>celulares online</div>
+        <div class="kpi"><b id="k-versao">0</b>versão do estado</div>
+        <div class="kpi"><b id="k-L">0</b>relógio Lamport</div>
+      </div>
+      <div class="integ" id="integ">✅ Consistente: saldo + distribuído = 200</div>
+    </section>
+    <section class="card">
+      <div class="rotulo">Reservas em andamento <small>(expiram em 30 s)</small></div>
+      <div id="reservas"></div>
+    </section>
+  </div>
+
+  <div>
+    <section class="card">
+      <div class="rotulo">Fila da copiadora <small>(ordenada por Lamport)</small></div>
+      <ol id="fila" class="lista"></ol>
+      <button class="btn verde grande" id="imprimir" style="width:100%;margin-top:10px">🖨️ Imprimir próximo</button>
+    </section>
+    <section class="card">
+      <div class="rotulo">Log de eventos</div>
+      <ul id="log" class="log"></ul>
+    </section>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const socket = io();
+const url = location.origin + '/';
+$('url').textContent = url;
+try { new QRCode($('qr'), { text: url, width: 480, height: 480, colorDark: '#20376B' }); } catch (e) {}
+
+let lockAtual = true, versao = 0;
+$('lock').onclick = () => socket.emit('tio:lock', !lockAtual);
+$('estresse').onclick = () => socket.emit('tio:estresse');
+$('reset').onclick = () => socket.emit('tio:reset');
+$('imprimir').onclick = () => socket.emit('tio:imprimir');
+
+socket.on('estado', s => {
+  if (s.versao <= versao) return;
+  versao = s.versao;
+  lockAtual = s.usarLock;
+  $('lock').className = 'btn lock ' + (s.usarLock ? 'on' : 'off');
+  $('lock').textContent = s.usarLock ? '🔒 Exclusão mútua: LIGADA' : '🔓 Exclusão mútua: DESLIGADA';
+  $('saldo').textContent = s.saldo;
+  const pct = Math.max(0, Math.min(100, s.saldo / s.cota * 100));
+  $('barra').style.width = pct + '%';
+  $('barra').style.background = pct < 15 ? 'var(--erro)' : pct < 40 ? 'var(--aviso)' : 'var(--verde)';
+  $('k-dist').textContent = s.distribuido;
+  $('k-online').textContent = s.online;
+  $('k-versao').textContent = s.versao;
+  $('k-L').textContent = s.lamport;
+  const integ = $('integ');
+  integ.className = 'integ' + (s.integridade ? '' : ' ruim');
+  integ.textContent = s.integridade
+    ? `✅ Consistente: ${s.saldo} + ${s.distribuido} = ${s.cota}`
+    : `⚠️ INCONSISTENTE: ${s.saldo} + ${s.distribuido} ≠ ${s.cota} (${s.excesso} pág além da cota)`;
+  const agora = Date.now();
+  $('reservas').innerHTML = s.reservas.length
+    ? s.reservas.map(r => `<div class="reserva-item"><span><b>${esc(r.nome)}</b> · ${r.paginas} pág · L${r.L}</span><span>⏱️ ${Math.ceil((r.expira - agora) / 1000)}s</span></div>`).join('')
+    : '<span style="color:var(--suave)">Nenhuma reserva</span>';
+  $('fila').innerHTML = s.fila.length
+    ? s.fila.map(f => `<li><span>${esc(f.nome)}</span><span>${f.paginas} pág · L${f.L}</span></li>`).join('')
+    : '<li class="vazio">Fila vazia</li>';
+  $('log').innerHTML = s.log.slice(0, 14).map(e => `<li class="${e.tipo}"><small>L${e.L}</small> ${esc(e.texto)}</li>`).join('');
+});
+function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+</script>
+</body>
+</html>
