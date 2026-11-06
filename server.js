@@ -28,6 +28,14 @@ const estado = {
   log: [],
 };
 let seq = 0;
+const dispositivos = new Map(); // deviceId -> nome (identidade fixa do celular)
+
+function identificar(deviceId, nome) {
+  deviceId = String(deviceId || '').slice(0, 40);
+  if (!deviceId) return null;
+  if (!dispositivos.has(deviceId) && nome) dispositivos.set(deviceId, String(nome).trim().slice(0, 20));
+  return dispositivos.get(deviceId) || null;
+}
 
 // ---------------- Mutex (exclusão mútua) ----------------
 class Mutex {
@@ -89,12 +97,14 @@ function publicar() {
 }
 
 // ---------------- Operações ----------------
-async function reservar({ nome, paginas, L }) {
+async function reservar({ deviceId, nome, paginas, L }) {
   paginas = Math.floor(Number(paginas));
-  nome = String(nome || 'Anônimo').slice(0, 20);
+  nome = identificar(deviceId, nome);
+  if (!nome) return { ok: false, msg: 'Dispositivo não identificado. Recarregue a página.' };
   if (!(paginas >= 1 && paginas <= 50)) return { ok: false, msg: 'Peça entre 1 e 50 páginas.' };
   const Lpedido = tick(L);
   return secaoCritica(async () => {
+    if (estado.reservas.some(r => r.dono === deviceId)) return { ok: false, msg: 'Você já tem uma reserva aberta. Confirme ou cancele antes.' };
     const lido = estado.saldo;            // 1. LÊ o saldo
     await latencia();                     // 2. "banco" demora...
     if (lido < paginas) {
@@ -103,7 +113,7 @@ async function reservar({ nome, paginas, L }) {
       return { ok: false, msg: `Saldo insuficiente (restam ${lido}).`, L: tick() };
     }
     estado.saldo = lido - paginas;        // 3. ESCREVE o novo saldo
-    const r = { id: ++seq, nome, paginas, L: Lpedido, expira: Date.now() + RESERVA_MS };
+    const r = { id: ++seq, dono: deviceId, nome, paginas, L: Lpedido, expira: Date.now() + RESERVA_MS };
     estado.reservas.push(r);
     registrar(`${nome} reservou ${paginas} pág`, 'ok');
     publicar();
@@ -111,22 +121,22 @@ async function reservar({ nome, paginas, L }) {
   });
 }
 
-async function confirmar({ id, L }) {
+async function confirmar({ id, deviceId, L }) {
   tick(L);
   return secaoCritica(async () => {
-    const i = estado.reservas.findIndex(r => r.id === id);
+    const i = estado.reservas.findIndex(r => r.id === id && r.dono === deviceId);
     if (i < 0) return { ok: false, msg: 'Reserva expirou ou não existe.' };
     const [r] = estado.reservas.splice(i, 1);
-    estado.fila.push({ id: r.id, nome: r.nome, paginas: r.paginas, L: r.L });
+    estado.fila.push({ id: r.id, dono: r.dono, nome: r.nome, paginas: r.paginas, L: r.L });
     registrar(`${r.nome} confirmou ${r.paginas} pág → fila da copiadora`, 'ok');
     publicar();
     return { ok: true };
   });
 }
 
-async function devolver(id, motivo) {
+async function devolver(id, motivo, deviceId = null) {
   return secaoCritica(async () => {
-    const i = estado.reservas.findIndex(r => r.id === id);
+    const i = estado.reservas.findIndex(r => r.id === id && (!deviceId || r.dono === deviceId));
     if (i < 0) return { ok: false };
     const [r] = estado.reservas.splice(i, 1);
     estado.saldo += r.paginas;
@@ -148,7 +158,9 @@ io.on('connection', socket => {
   publicar(); // novo dispositivo recebe o estado completo (e todos veem o nº online)
   socket.on('reservar', async (dados, cb) => cb?.(await reservar(dados)));
   socket.on('confirmar', async (dados, cb) => cb?.(await confirmar(dados)));
-  socket.on('cancelar', async ({ id }, cb) => cb?.(await devolver(id, 'CANCELADA')));
+  socket.on('cancelar', async ({ id, deviceId }, cb) => cb?.(await devolver(id, 'CANCELADA', deviceId)));
+  // celular se apresenta com seu ID fixo e recebe o nome já registrado (se houver)
+  socket.on('identificar', ({ deviceId, nome }, cb) => cb?.({ nome: identificar(deviceId, nome) }));
 
   // --- comandos do Tio (tela da copiadora) ---
   socket.on('tio:imprimir', () => {
@@ -169,13 +181,14 @@ io.on('connection', socket => {
   });
   socket.on('tio:reset', () => {
     Object.assign(estado, { saldo: COTA, reservas: [], fila: [], impressos: [], log: [] });
+    [...dispositivos.keys()].filter(k => k.startsWith('robo-')).forEach(k => dispositivos.delete(k));
     tick();
     registrar('Cota zerada: 200 páginas disponíveis', 'aviso');
     publicar();
   });
   socket.on('tio:estresse', () => {
     // 15 "alunos robôs" pedem 20 páginas no MESMO instante
-    for (let i = 1; i <= 15; i++) reservar({ nome: `Robô ${i}`, paginas: 20, L: 0 });
+    for (let i = 1; i <= 15; i++) reservar({ deviceId: `robo-${i}`, nome: `Robô ${i}`, paginas: 20, L: 0 });
   });
   socket.on('disconnect', () => setTimeout(publicar, 100));
 });

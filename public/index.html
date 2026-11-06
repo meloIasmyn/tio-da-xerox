@@ -3,28 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#20376B">
 <title>Tio da Xerox</title>
 <link rel="stylesheet" href="estilo.css">
 </head>
 <body>
-<header>
-  <div class="marca">🖨️ <b>Tio da Xerox</b></div>
-  <div class="sub">Cota da turma · Sistemas Distribuídos</div>
+<header class="topo">
+  <div class="logo"><span class="folha">🖨️</span> Tio da Xerox</div>
+  <div class="eu" id="eu" hidden></div>
 </header>
 
 <main>
   <!-- Identificação -->
-  <section id="tela-nome" class="card">
-    <h2>Quem é você?</h2>
+  <section id="tela-nome" class="card entrada" hidden>
+    <div class="emoji">👋</div>
+    <h2>Como a turma te chama?</h2>
+    <p class="suave">Seu nome fica salvo neste celular. As reservas ficam presas a ele.</p>
     <input id="nome" maxlength="20" placeholder="Seu nome" autocomplete="off">
-    <button class="btn primario" id="entrar">Entrar</button>
+    <button class="btn primario grande" id="entrar">Entrar</button>
   </section>
+
+  <section id="carregando" class="card entrada"><p class="suave">Conectando…</p></section>
 
   <div id="app" hidden>
     <!-- Saldo -->
     <section class="card saldo">
-      <div class="rotulo">Saldo da turma</div>
-      <div class="numero"><span id="saldo">–</span><small> / <span id="cota">200</span> pág</small></div>
+      <div class="rotulo">Páginas disponíveis da turma</div>
+      <div class="numero"><span id="saldo">–</span><small>de <span id="cota">200</span></small></div>
       <div class="barra"><div id="barra"></div></div>
       <div id="alerta" class="alerta" hidden></div>
     </section>
@@ -33,11 +38,11 @@
     <section class="card" id="card-pedido">
       <div class="rotulo">Quantas páginas você vai imprimir?</div>
       <div class="stepper">
-        <button class="btn" data-d="-5">−5</button>
-        <button class="btn" data-d="-1">−1</button>
+        <button class="btn redondo" data-d="-5">−5</button>
+        <button class="btn redondo" data-d="-1">−1</button>
         <input id="paginas" type="number" min="1" max="50" value="10" inputmode="numeric">
-        <button class="btn" data-d="1">+1</button>
-        <button class="btn" data-d="5">+5</button>
+        <button class="btn redondo" data-d="1">+1</button>
+        <button class="btn redondo" data-d="5">+5</button>
       </div>
       <button class="btn primario grande" id="reservar">Reservar páginas</button>
       <div id="msg" class="msg"></div>
@@ -45,10 +50,15 @@
 
     <!-- Minha reserva -->
     <section class="card destaque" id="card-reserva" hidden>
-      <div class="rotulo">Sua reserva está segura por</div>
-      <div class="contador"><span id="seg">30</span>s</div>
+      <div class="linha-topo">
+        <div>
+          <div class="rotulo">Sua reserva</div>
+          <div class="reserva-pag"><b id="r-pag"></b> páginas</div>
+        </div>
+        <div class="contador"><span id="seg">30</span><small>s</small></div>
+      </div>
       <div class="barra fina"><div id="barra-tempo"></div></div>
-      <p><b id="r-pag"></b> páginas · carimbo de Lamport <b id="r-L"></b></p>
+      <p class="suave">Confirme antes do tempo acabar, senão as páginas voltam para a turma.</p>
       <div class="linha">
         <button class="btn" id="cancelar">Cancelar</button>
         <button class="btn verde" id="confirmar">Confirmar impressão</button>
@@ -57,73 +67,95 @@
 
     <!-- Fila -->
     <section class="card">
-      <div class="rotulo">Fila da copiadora <small>(ordem por relógio de Lamport)</small></div>
-      <ol id="fila" class="lista"></ol>
+      <div class="rotulo">Fila da copiadora</div>
+      <ol id="fila" class="fila"></ol>
     </section>
 
     <section class="card">
       <div class="rotulo">Acontecendo agora</div>
       <ul id="log" class="log"></ul>
     </section>
+
+    <div class="status" id="status">conectando…</div>
   </div>
 </main>
-
-<footer id="rodape">conectando…</footer>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const $ = id => document.getElementById(id);
+const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+const ler = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+
+// ID fixo deste celular: criado uma vez e guardado no aparelho
+let deviceId = ler('tx-dev');
+if (!deviceId) { deviceId = 'd-' + Math.random().toString(36).slice(2, 10); guardar('tx-dev', deviceId); }
+const idCurto = '#' + deviceId.slice(-4).toUpperCase();
+
 const socket = io();
-let nome = '';
+let nome = ler('tx-nome') || '';
 let L = 0;              // relógio lógico (Lamport) deste celular
 let versao = 0;         // última versão de estado aplicada
-let minha = null;       // reserva ativa
+let minha = null;       // minha reserva ativa (vem do servidor, pelo deviceId)
 let estadoAtual = null;
-
-try { nome = localStorage.getItem('tx-nome') || ''; } catch (e) {}
-if (nome) entrar(); else $('nome').focus();
-
-$('entrar').addEventListener('click', () => {
-  nome = $('nome').value.trim();
-  if (!nome) { $('nome').placeholder = 'Digite seu nome primeiro'; $('nome').focus(); return; }
-  try { localStorage.setItem('tx-nome', nome); } catch (e) {}
-  entrar();
-});
-$('nome').addEventListener('keydown', e => { if (e.key === 'Enter') $('entrar').click(); });
-function entrar() { $('tela-nome').hidden = true; $('app').hidden = false; }
 
 // Lamport: incrementa antes de enviar, ajusta ao receber
 const enviarL = () => ++L;
 const receberL = Lr => { L = Math.max(L, Lr || 0) + 1; };
 
-document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => {
-  const v = Math.min(50, Math.max(1, (+$('paginas').value || 0) + +b.dataset.d));
-  $('paginas').value = v;
-});
+function mostrar(tela) {
+  $('carregando').hidden = true;
+  $('tela-nome').hidden = tela !== 'nome';
+  $('app').hidden = tela !== 'app';
+  if (tela === 'app') { $('eu').hidden = false; $('eu').textContent = `${nome} · ${idCurto}`; }
+}
 
-$('reservar').onclick = () => {
-  const paginas = +$('paginas').value;
+function identificar(n, depois) {
+  socket.emit('identificar', { deviceId, nome: n }, res => {
+    if (res && res.nome) { nome = res.nome; guardar('tx-nome', nome); mostrar('app'); }
+    else mostrar('nome');
+    depois && depois(res);
+  });
+}
+
+socket.on('connect', () => identificar(nome));
+
+$('entrar').addEventListener('click', () => {
+  const n = $('nome').value.trim();
+  if (!n) { $('nome').placeholder = 'Digite seu nome primeiro'; $('nome').focus(); return; }
+  identificar(n);
+});
+$('nome').addEventListener('keydown', e => { if (e.key === 'Enter') $('entrar').click(); });
+
+document.querySelectorAll('[data-d]').forEach(b => b.addEventListener('click', () => {
+  $('paginas').value = Math.min(50, Math.max(1, (+$('paginas').value || 0) + +b.dataset.d));
+}));
+
+function aviso(texto, tipo) { $('msg').textContent = texto; $('msg').className = 'msg ' + (tipo || ''); }
+
+$('reservar').addEventListener('click', () => {
   $('reservar').disabled = true;
-  $('msg').textContent = 'Pedindo ao servidor…';
-  $('msg').className = 'msg';
-  socket.emit('reservar', { nome, paginas, L: enviarL() }, res => {
+  aviso('Pedindo ao servidor…');
+  socket.emit('reservar', { deviceId, nome, paginas: +$('paginas').value, L: enviarL() }, res => {
     receberL(res.L);
     $('reservar').disabled = false;
-    if (res.ok) { minha = res.reserva; $('msg').textContent = ''; mostrarReserva(); }
-    else { $('msg').textContent = '❌ ' + res.msg; $('msg').className = 'msg erro'; }
+    if (res.ok) aviso('');
+    else aviso('❌ ' + res.msg, 'erro');
   });
-};
-$('confirmar').onclick = () => socket.emit('confirmar', { id: minha.id, L: enviarL() }, res => {
-  $('msg').textContent = res.ok ? '✅ Confirmado! Você entrou na fila da copiadora.' : '❌ ' + res.msg;
-  $('msg').className = 'msg ' + (res.ok ? 'ok' : 'erro');
-  minha = null; mostrarReserva();
 });
-$('cancelar').onclick = () => socket.emit('cancelar', { id: minha.id }, () => { minha = null; mostrarReserva(); });
+$('confirmar').addEventListener('click', () => {
+  if (!minha) return;
+  socket.emit('confirmar', { id: minha.id, deviceId, L: enviarL() }, res => {
+    aviso(res.ok ? '✅ Confirmado! Seu pedido está na fila da copiadora.' : '❌ ' + res.msg, res.ok ? 'ok' : 'erro');
+  });
+});
+$('cancelar').addEventListener('click', () => {
+  if (minha) socket.emit('cancelar', { id: minha.id, deviceId }, () => aviso('Reserva cancelada.', 'aviso'));
+});
 
 function mostrarReserva() {
   $('card-reserva').hidden = !minha;
   $('card-pedido').hidden = !!minha;
-  if (minha) { $('r-pag').textContent = minha.paginas; $('r-L').textContent = minha.L; }
+  if (minha) $('r-pag').textContent = minha.paginas;
 }
 
 // Contagem regressiva da reserva
@@ -143,25 +175,25 @@ socket.on('estado', s => {
   $('cota').textContent = s.cota;
   const pct = Math.max(0, Math.min(100, s.saldo / s.cota * 100));
   $('barra').style.width = pct + '%';
-  $('barra').style.background = pct < 15 ? 'var(--erro)' : pct < 40 ? 'var(--aviso)' : 'var(--verde)';
+  $('barra').className = pct < 15 ? 'critico' : pct < 40 ? 'medio' : '';
 
-  const alerta = $('alerta');
-  if (!s.integridade) { alerta.hidden = false; alerta.textContent = `⚠️ INCONSISTÊNCIA: ${s.excesso} páginas distribuídas além da cota!`; }
-  else alerta.hidden = true;
+  $('alerta').hidden = s.integridade;
+  if (!s.integridade) $('alerta').textContent = `⚠️ Inconsistência: ${s.excesso} páginas distribuídas além da cota`;
 
-  // minha reserva sumiu do servidor? (expirou)
-  if (minha && !s.reservas.some(r => r.id === minha.id)) {
-    minha = null; mostrarReserva();
-    if (!$('msg').textContent) { $('msg').textContent = '⏱️ Sua reserva expirou e as páginas voltaram para a turma.'; $('msg').className = 'msg aviso'; }
-  }
+  // minha reserva é a que pertence ao ID deste celular
+  const antes = minha;
+  minha = s.reservas.find(r => r.dono === deviceId) || null;
+  if (antes && !minha && !s.fila.some(f => f.id === antes.id) && !$('msg').textContent)
+    aviso('⏱️ Sua reserva expirou e as páginas voltaram para a turma.', 'aviso');
+  mostrarReserva();
 
   $('fila').innerHTML = s.fila.length
-    ? s.fila.map(f => `<li class="${f.nome === nome ? 'eu' : ''}"><span>${esc(f.nome)}</span><span>${f.paginas} pág · L${f.L}</span></li>`).join('')
-    : '<li class="vazio">Fila vazia</li>';
-  $('log').innerHTML = s.log.slice(0, 8).map(e => `<li class="${e.tipo}"><small>L${e.L}</small> ${esc(e.texto)}</li>`).join('');
-  $('rodape').innerHTML = `🟢 ${s.online} online · versão ${s.versao} · meu relógio L=${L} · ${s.usarLock ? '🔒 lock ON' : '🔓 lock OFF'}`;
+    ? s.fila.map((f, i) => `<li class="${f.dono === deviceId ? 'minha' : ''}"><span class="pos">${i + 1}</span><span class="quem">${esc(f.nome)}${f.dono === deviceId ? ' (você)' : ''}</span><span class="qtd">${f.paginas} pág</span></li>`).join('')
+    : '<li class="vazio">Ninguém na fila ainda</li>';
+  $('log').innerHTML = s.log.slice(0, 6).map(e => `<li class="${e.tipo}">${esc(e.texto)}</li>`).join('');
+  $('status').innerHTML = `<span class="ponto"></span>${s.online} online · v${s.versao} · L=${L} · ${s.usarLock ? '🔒' : '🔓'}`;
 });
-socket.on('disconnect', () => $('rodape').textContent = '🔴 desconectado — tentando reconectar…');
+socket.on('disconnect', () => { $('status').innerHTML = '<span class="ponto off"></span>reconectando…'; });
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 </script>
 </body>

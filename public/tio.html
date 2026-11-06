@@ -6,7 +6,7 @@
 <title>Tio da Xerox — Copiadora</title>
 <link rel="stylesheet" href="estilo.css">
 <style>
-  main { max-width: 1250px; display: grid; grid-template-columns: 300px 1fr 1fr; gap: 14px; align-items: start; }
+  main { max-width: 1250px; padding-top: 20px; display: grid; grid-template-columns: 300px 1fr 1fr; gap: 14px; align-items: start; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   #qr { display: flex; justify-content: center; padding: 8px; background: #fff; }
   #qr img, #qr canvas { width: 100%; max-width: 240px; height: auto; }
@@ -20,15 +20,15 @@
   .controles { display: grid; gap: 8px; }
   .lock { font-size: 1.1rem; padding: 14px; }
   .lock.on { background: var(--verde); color: #fff; } .lock.off { background: var(--erro); color: #fff; }
-  .lista li { font-size: 1.05rem; }
+  .fila li { font-size: 1.05rem; }
   .reserva-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--lilas); }
   .log { font-size: .95rem; }
 </style>
 </head>
 <body>
-<header>
-  <div class="marca">🖨️ <b>Tio da Xerox</b> — tela da copiadora</div>
-  <div class="sub">Cota coletiva da turma · demonstração de Sistemas Distribuídos · UFR</div>
+<header class="topo">
+  <div class="logo"><span class="folha">🖨️</span> Tio da Xerox</div>
+  <div class="eu">Tela da copiadora</div>
 </header>
 <main>
   <div>
@@ -59,15 +59,15 @@
       <div class="integ" id="integ">✅ Consistente: saldo + distribuído = 200</div>
     </section>
     <section class="card">
-      <div class="rotulo">Reservas em andamento <small>(expiram em 30 s)</small></div>
+      <div class="rotulo">Reservas em andamento · expiram em 30 s</div>
       <div id="reservas"></div>
     </section>
   </div>
 
   <div>
     <section class="card">
-      <div class="rotulo">Fila da copiadora <small>(ordenada por Lamport)</small></div>
-      <ol id="fila" class="lista"></ol>
+      <div class="rotulo">Fila da copiadora · ordem de Lamport</div>
+      <ol id="fila" class="fila"></ol>
       <button class="btn verde grande" id="imprimir" style="width:100%;margin-top:10px">🖨️ Imprimir próximo</button>
     </section>
     <section class="card">
@@ -113,11 +113,11 @@ socket.on('estado', s => {
     : `⚠️ INCONSISTENTE: ${s.saldo} + ${s.distribuido} ≠ ${s.cota} (${s.excesso} pág além da cota)`;
   const agora = Date.now();
   $('reservas').innerHTML = s.reservas.length
-    ? s.reservas.map(r => `<div class="reserva-item"><span><b>${esc(r.nome)}</b> · ${r.paginas} pág · L${r.L}</span><span>⏱️ ${Math.ceil((r.expira - agora) / 1000)}s</span></div>`).join('')
+    ? s.reservas.map(r => `<div class="reserva-item"><span><b>${esc(r.nome)}</b> · ${r.paginas} pág · L${r.L}</span><span>⏱️ ${Math.ceil((r.expira - agora) / 1000)}s · ${esc((r.dono || '').startsWith('robo-') ? 'robô' : '#' + (r.dono || '').slice(-4).toUpperCase())}</span></div>`).join('')
     : '<span style="color:var(--suave)">Nenhuma reserva</span>';
   $('fila').innerHTML = s.fila.length
-    ? s.fila.map(f => `<li><span>${esc(f.nome)}</span><span>${f.paginas} pág · L${f.L}</span></li>`).join('')
-    : '<li class="vazio">Fila vazia</li>';
+    ? s.fila.map((f, i) => `<li><span class="pos">${i + 1}</span><span class="quem">${esc(f.nome)}</span><span class="qtd">${f.paginas} pág · L${f.L}</span></li>`).join('')
+    : '<li class="vazio">Ninguém na fila ainda</li>';
   $('log').innerHTML = s.log.slice(0, 14).map(e => `<li class="${e.tipo}"><small>L${e.L}</small> ${esc(e.texto)}</li>`).join('');
 });
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
