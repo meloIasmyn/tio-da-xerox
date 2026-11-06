@@ -83,8 +83,13 @@ let estadoAtual = null;
 try { nome = localStorage.getItem('tx-nome') || ''; } catch (e) {}
 if (nome) entrar(); else $('nome').focus();
 
-$('entrar').onclick = () => { nome = $('nome').value.trim(); if (nome) { try { localStorage.setItem('tx-nome', nome); } catch (e) {} entrar(); } };
-$('nome').onkeydown = e => e.key === 'Enter' && $('entrar').click();
+$('entrar').addEventListener('click', () => {
+  nome = $('nome').value.trim();
+  if (!nome) { $('nome').placeholder = 'Digite seu nome primeiro'; $('nome').focus(); return; }
+  try { localStorage.setItem('tx-nome', nome); } catch (e) {}
+  entrar();
+});
+$('nome').addEventListener('keydown', e => { if (e.key === 'Enter') $('entrar').click(); });
 function entrar() { $('tela-nome').hidden = true; $('app').hidden = false; }
 
 // Lamport: incrementa antes de enviar, ajusta ao receber
