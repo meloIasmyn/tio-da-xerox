@@ -160,6 +160,15 @@ io.on('connection', socket => {
   socket.on('confirmar', async (dados, cb) => cb?.(await confirmar(dados)));
   socket.on('cancelar', async ({ id, deviceId }, cb) => cb?.(await devolver(id, 'CANCELADA', deviceId)));
   // celular se apresenta com seu ID fixo e recebe o nome já registrado (se houver)
+  // logoff: cancela a reserva aberta do aparelho e esquece o ID
+  socket.on('sair', async ({ deviceId }, cb) => {
+    const r = estado.reservas.find(x => x.dono === deviceId);
+    if (r) await devolver(r.id, 'CANCELADA (saiu)', deviceId);
+    const quem = dispositivos.get(deviceId);
+    dispositivos.delete(deviceId);
+    if (quem) { tick(); registrar(`${quem} saiu`, 'info'); publicar(); }
+    cb?.({ ok: true });
+  });
   socket.on('identificar', ({ deviceId, nome }, cb) => cb?.({ nome: identificar(deviceId, nome) }));
 
   // --- comandos do Tio (tela da copiadora) ---

@@ -86,7 +86,15 @@ const url = location.origin + '/';
 $('url').textContent = url;
 try { new QRCode($('qr'), { text: url, width: 480, height: 480, colorDark: '#20376B' }); } catch (e) {}
 
-let lockAtual = true, versao = 0;
+let lockAtual = true, versao = 0, ultimo = null;
+function desenharReservas() {
+  if (!ultimo) return;
+  const agora = Date.now();
+  $('reservas').innerHTML = ultimo.reservas.length
+    ? ultimo.reservas.map(r => `<div class="reserva-item"><span><b>${esc(r.nome)}</b> · ${r.paginas} pág · L${r.L}</span><span>⏱️ ${Math.max(0, Math.ceil((r.expira - agora) / 1000))}s · ${esc((r.dono || '').startsWith('robo-') ? 'robô' : '#' + (r.dono || '').slice(-4).toUpperCase())}</span></div>`).join('')
+    : '<span style="color:var(--suave)">Nenhuma reserva</span>';
+}
+setInterval(desenharReservas, 1000);
 $('lock').onclick = () => socket.emit('tio:lock', !lockAtual);
 $('estresse').onclick = () => socket.emit('tio:estresse');
 $('reset').onclick = () => socket.emit('tio:reset');
@@ -111,10 +119,7 @@ socket.on('estado', s => {
   integ.textContent = s.integridade
     ? `✅ Consistente: ${s.saldo} + ${s.distribuido} = ${s.cota}`
     : `⚠️ INCONSISTENTE: ${s.saldo} + ${s.distribuido} ≠ ${s.cota} (${s.excesso} pág além da cota)`;
-  const agora = Date.now();
-  $('reservas').innerHTML = s.reservas.length
-    ? s.reservas.map(r => `<div class="reserva-item"><span><b>${esc(r.nome)}</b> · ${r.paginas} pág · L${r.L}</span><span>⏱️ ${Math.ceil((r.expira - agora) / 1000)}s · ${esc((r.dono || '').startsWith('robo-') ? 'robô' : '#' + (r.dono || '').slice(-4).toUpperCase())}</span></div>`).join('')
-    : '<span style="color:var(--suave)">Nenhuma reserva</span>';
+  ultimo = s; desenharReservas();
   $('fila').innerHTML = s.fila.length
     ? s.fila.map((f, i) => `<li><span class="pos">${i + 1}</span><span class="quem">${esc(f.nome)}</span><span class="qtd">${f.paginas} pág · L${f.L}</span></li>`).join('')
     : '<li class="vazio">Ninguém na fila ainda</li>';

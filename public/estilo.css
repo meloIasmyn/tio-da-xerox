@@ -74,3 +74,24 @@ input:focus { border-color: var(--azul2); }
 .status { text-align: center; color: var(--suave); font-size: .75rem; margin-top: 6px; }
 .ponto { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--verde); margin-right: 6px; vertical-align: middle; }
 .ponto.off { background: var(--erro); }
+
+/* ---- perfumarias ---- */
+.usuario { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.usuario .eu { max-width: none; }
+.sair { font: inherit; font-size: .78rem; font-weight: bold; color: #fff; background: transparent; border: 1px solid rgba(255,255,255,.4); border-radius: 999px; padding: 5px 10px; cursor: pointer; }
+.btn.perigo { background: var(--erro); color: #fff; }
+.modal { position: fixed; inset: 0; background: rgba(20, 30, 60, .45); display: grid; place-items: center; z-index: 20; padding: 16px; }
+.modal[hidden] { display: none; }
+.modal-caixa { background: #fff; border-radius: 18px; padding: 22px; width: 100%; max-width: 360px; box-shadow: var(--sombra); }
+.modal-caixa h3 { margin: 0 0 6px; color: var(--azul); }
+.toast { position: fixed; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 200%); background: var(--azul); color: #fff; padding: 12px 18px; border-radius: 14px;
+  font-weight: bold; font-size: .92rem; box-shadow: 0 8px 24px rgba(0,0,0,.2); transition: transform .3s ease; z-index: 30; width: max-content; max-width: calc(100% - 32px); text-align: center; }
+.toast.mostra { transform: translate(-50%, 0); }
+.toast.ok { background: #2c8a45; }
+.minha-pos { color: var(--azul2); text-transform: none; letter-spacing: 0; }
+.urgente { border-color: var(--erro); }
+.urgente .contador { color: var(--erro); animation: bate 1s infinite; }
+.urgente .barra.fina > div { background: var(--erro); }
+@keyframes bate { 50% { transform: scale(1.08); } }
+.pulsa { display: inline-block; animation: pulsa .5s ease; }
+@keyframes pulsa { 40% { transform: scale(1.12); color: var(--azul2); } }

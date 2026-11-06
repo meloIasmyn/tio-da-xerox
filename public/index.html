@@ -10,8 +10,24 @@
 <body>
 <header class="topo">
   <div class="logo"><span class="folha">🖨️</span> Tio da Xerox</div>
-  <div class="eu" id="eu" hidden></div>
+  <div class="usuario" id="usuario" hidden>
+    <span class="eu" id="eu"></span>
+    <button class="sair" id="sair" aria-label="Sair">Sair</button>
+  </div>
 </header>
+
+<!-- confirmação de saída -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-caixa">
+    <h3>Sair deste celular?</h3>
+    <p class="suave" id="modal-texto">Seu nome e o ID deste aparelho serão apagados.</p>
+    <div class="linha">
+      <button class="btn" id="modal-nao">Voltar</button>
+      <button class="btn perigo" id="modal-sim">Sair</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
 
 <main>
   <!-- Identificação -->
@@ -67,7 +83,7 @@
 
     <!-- Fila -->
     <section class="card">
-      <div class="rotulo">Fila da copiadora</div>
+      <div class="rotulo">Fila da copiadora <span class="minha-pos" id="minha-pos"></span></div>
       <ol id="fila" class="fila"></ol>
     </section>
 
@@ -87,9 +103,17 @@ const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 const ler = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
 
 // ID fixo deste celular: criado uma vez e guardado no aparelho
+const novoId = () => 'd-' + Math.random().toString(36).slice(2, 10);
 let deviceId = ler('tx-dev');
-if (!deviceId) { deviceId = 'd-' + Math.random().toString(36).slice(2, 10); guardar('tx-dev', deviceId); }
-const idCurto = '#' + deviceId.slice(-4).toUpperCase();
+if (!deviceId) { deviceId = novoId(); guardar('tx-dev', deviceId); }
+const idCurto = () => '#' + deviceId.slice(-4).toUpperCase();
+const vibrar = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
+let toastTimer;
+function toast(texto, tipo) {
+  const t = $('toast'); t.textContent = texto; t.className = 'toast mostra ' + (tipo || '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = 'toast', 3500);
+}
+const jaAvisados = new Set(); // pedidos impressos já avisados
 
 const socket = io();
 let nome = ler('tx-nome') || '';
@@ -97,6 +121,7 @@ let L = 0;              // relógio lógico (Lamport) deste celular
 let versao = 0;         // última versão de estado aplicada
 let minha = null;       // minha reserva ativa (vem do servidor, pelo deviceId)
 let estadoAtual = null;
+let primeiroEstadoVisto = false; // não avisa impressões antigas ao abrir a página
 
 // Lamport: incrementa antes de enviar, ajusta ao receber
 const enviarL = () => ++L;
@@ -106,7 +131,8 @@ function mostrar(tela) {
   $('carregando').hidden = true;
   $('tela-nome').hidden = tela !== 'nome';
   $('app').hidden = tela !== 'app';
-  if (tela === 'app') { $('eu').hidden = false; $('eu').textContent = `${nome} · ${idCurto}`; }
+  $('usuario').hidden = tela !== 'app';
+  if (tela === 'app') $('eu').textContent = `${nome} · ${idCurto()}`;
 }
 
 function identificar(n, depois) {
@@ -139,13 +165,33 @@ $('reservar').addEventListener('click', () => {
     receberL(res.L);
     $('reservar').disabled = false;
     if (res.ok) aviso('');
-    else aviso('❌ ' + res.msg, 'erro');
+    else { aviso('❌ ' + res.msg, 'erro'); vibrar([60, 40, 60]); }
+  });
+});
+
+// ---- Sair (logoff) ----
+$('sair').addEventListener('click', () => {
+  $('modal-texto').textContent = minha
+    ? `Sua reserva de ${minha.paginas} páginas será cancelada e as páginas voltam para a turma. Seu nome e o ID deste aparelho serão apagados.`
+    : 'Seu nome e o ID deste aparelho serão apagados deste navegador.';
+  $('modal').hidden = false;
+});
+$('modal-nao').addEventListener('click', () => { $('modal').hidden = true; });
+$('modal-sim').addEventListener('click', () => {
+  socket.emit('sair', { deviceId }, () => {
+    try { localStorage.removeItem('tx-nome'); localStorage.removeItem('tx-dev'); } catch (e) {}
+    deviceId = novoId(); guardar('tx-dev', deviceId);
+    nome = ''; minha = null; jaAvisados.clear();
+    $('modal').hidden = true; $('nome').value = ''; aviso('');
+    mostrar('nome');
+    toast('Você saiu. Até a próxima!');
   });
 });
 $('confirmar').addEventListener('click', () => {
   if (!minha) return;
   socket.emit('confirmar', { id: minha.id, deviceId, L: enviarL() }, res => {
     aviso(res.ok ? '✅ Confirmado! Seu pedido está na fila da copiadora.' : '❌ ' + res.msg, res.ok ? 'ok' : 'erro');
+    vibrar(res.ok ? 40 : [60, 40, 60]);
   });
 });
 $('cancelar').addEventListener('click', () => {
@@ -163,6 +209,7 @@ setInterval(() => {
   if (!minha || !estadoAtual) return;
   const rest = Math.max(0, minha.expira - Date.now());
   $('seg').textContent = Math.ceil(rest / 1000);
+  $('card-reserva').classList.toggle('urgente', rest < 10000);
   $('barra-tempo').style.width = (rest / estadoAtual.reservaMs * 100) + '%';
 }, 200);
 
@@ -171,6 +218,7 @@ socket.on('estado', s => {
   if (s.versao <= versao) return;      // descarta mensagem atrasada/fora de ordem
   versao = s.versao; receberL(s.lamport); estadoAtual = s;
 
+  if ($('saldo').textContent !== String(s.saldo)) { const n = $('saldo'); n.classList.remove('pulsa'); void n.offsetWidth; n.classList.add('pulsa'); }
   $('saldo').textContent = s.saldo;
   $('cota').textContent = s.cota;
   const pct = Math.max(0, Math.min(100, s.saldo / s.cota * 100));
@@ -184,9 +232,16 @@ socket.on('estado', s => {
   const antes = minha;
   minha = s.reservas.find(r => r.dono === deviceId) || null;
   if (antes && !minha && !s.fila.some(f => f.id === antes.id) && !$('msg').textContent)
-    aviso('⏱️ Sua reserva expirou e as páginas voltaram para a turma.', 'aviso');
+    { aviso('⏱️ Sua reserva expirou e as páginas voltaram para a turma.', 'aviso'); vibrar([100, 50, 100]); }
   mostrarReserva();
 
+  const pos = s.fila.findIndex(f => f.dono === deviceId);
+  $('minha-pos').textContent = pos >= 0 ? `· você é o ${pos + 1}º` : '';
+  s.impressos.filter(f => f.dono === deviceId && !jaAvisados.has(f.id)).forEach(f => {
+    jaAvisados.add(f.id);
+    if (primeiroEstadoVisto) { toast(`🖨️ Seu pedido de ${f.paginas} páginas foi impresso! Pode buscar.`, 'ok'); vibrar([80, 60, 80, 60, 200]); }
+  });
+  primeiroEstadoVisto = true;
   $('fila').innerHTML = s.fila.length
     ? s.fila.map((f, i) => `<li class="${f.dono === deviceId ? 'minha' : ''}"><span class="pos">${i + 1}</span><span class="quem">${esc(f.nome)}${f.dono === deviceId ? ' (você)' : ''}</span><span class="qtd">${f.paginas} pág</span></li>`).join('')
     : '<li class="vazio">Ninguém na fila ainda</li>';
